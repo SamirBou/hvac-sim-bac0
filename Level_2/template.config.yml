@@ -1,0 +1,17 @@
+####################################################
+# Copy content into config.yml and update device_ip
+####################################################
+
+device_ip: VM_IP_ADDRESS
+device_id: 1001
+device_name: VentSim
+
+initial:
+  room_temp_c: 25.0
+  co2_ppm: 900.0
+
+thresholds:
+  temp_c: 24.0
+  co2_ppm: 850.0
+
+tick_seconds: 1.0
