@@ -2,16 +2,24 @@
 # Copy content into config.yml and update device_ip
 ####################################################
 
-device_ip: VM_IP_ADDRESS
-device_id: 1001
-device_name: VentSim
+device_ip: 127.0.0.1
+device_id: 2001
+device_name: HVACSim
 
 initial:
-  room_temp_c: 25.0
-  co2_ppm: 900.0
+  current_temp_c: 27.0
+  chiller_speed_pct: 30.0
+  setpoint_c: 23.0
+  intake_fan_pct: 20.0
+  exhaust_fan_pct: 20.0
+  emergency_stop: false
 
-thresholds:
-  temp_c: 24.0
-  co2_ppm: 850.0
+dynamics:
+  cooling_gain_per_fan: 0.04
+  chiller_gain: 0.06
+  ambient_warm_drift: 0.03
+  noise_temp: 0.03
+  noise_chiller: 1.0
 
 tick_seconds: 1.0
+auto_control: true
