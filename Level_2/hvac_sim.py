@@ -1,18 +1,6 @@
 #!/usr/bin/env python3
 """
-BACnet HVAC Simulator (BACpypes3)
-
-I/O
----
-Outputs (Controls)
-  - temperature_setpoint_c        (AO:0) - degrees Celsius
-  - intake_fan_speed_percent      (AO:1) - 0..100 %
-  - exhaust_fan_speed_percent     (AO:2) - 0..100 %
-  - emergency_stop                (BO:0) - False/True
-
-Inputs (Sensors)
-  - current_temperature_c         (AI:0) - degrees Celsius
-  - chiller_speed_percent         (AI:1) - 0..100 %
+BACnet HVAC Simulator (BACpypes3) + Live Visualization
 
 To start simulation:
     > python hvac_sim.py
@@ -21,7 +9,11 @@ To start simulation:
 import asyncio
 import random
 import yaml
+import time
 from pathlib import Path
+from collections import deque
+import matplotlib.pyplot as plt
+from matplotlib.animation import FuncAnimation
 
 # --- BACpypes3 ---
 try:
@@ -47,30 +39,24 @@ DEFAULTS = {
     "device_id": 2001,
     "device_name": "HVACSim",
 
-    # Initial process state for HVAC (inputs) and outputs
     "initial": {
-        "current_temp_c": 25.0,         # AI:0
-        "chiller_speed_pct": 30.0,      # AI:1
-        "setpoint_c": 23.0,             # AO:0
-        "intake_fan_pct": 20.0,         # AO:1
-        "exhaust_fan_pct": 20.0,        # AO:2
-        "emergency_stop": False,        # BO:0
+        "current_temp_c": 25.0,
+        "chiller_speed_pct": 30.0,
+        "setpoint_c": 23.0,
+        "intake_fan_pct": 20.0,
+        "exhaust_fan_pct": 20.0,
+        "emergency_stop": False,
     },
 
-    # Dynamics knobs (consistent but not accurate Physics)
     "dynamics": {
-        "cooling_gain_per_fan": 0.04,   # °C per tick at 100% per fan
-        "chiller_gain": 0.06,           # °C per tick at 100% chiller
-        "ambient_warm_drift": 0.03,     # °C per tick toward warmer when idle
-        "noise_temp": 0.03,             # °C random noise
-        "noise_chiller": 1.0,           # % random noise
+        "cooling_gain_per_fan": 0.04,
+        "chiller_gain": 0.06,
+        "ambient_warm_drift": 0.03,
+        "noise_temp": 0.03,
+        "noise_chiller": 1.0,
     },
 
     "tick_seconds": 1.0,
-
-    # When true, the simulator will set AO:1/AO:2 to maintain the HVAC setpoint.
-    # When false, outputs must be driven by the Caldera client from another VM;
-    # the simulator only reads those outputs and updates sensors.
     "auto_control": True,
 }
 
@@ -89,30 +75,27 @@ if cfg_path.exists():
         cfg[section] = s
 
 # --- Unpack configuration ---
-DEVICE_IP    = str(cfg["device_ip"])
-DEVICE_ID    = int(cfg["device_id"])
-DEVICE_NAME  = str(cfg["device_name"])
+DEVICE_IP = str(cfg["device_ip"])
+DEVICE_ID = int(cfg["device_id"])
+DEVICE_NAME = str(cfg["device_name"])
 TICK_SECONDS = float(cfg["tick_seconds"])
 AUTO_CONTROL = bool(cfg.get("auto_control", True))
 
-# Process state (inputs)
-current_temp_c     = float(cfg["initial"]["current_temp_c"])    # AI:0
-chiller_speed_pct  = float(cfg["initial"]["chiller_speed_pct"]) # AI:1
+# Process state
+current_temp_c = float(cfg["initial"]["current_temp_c"])
+chiller_speed_pct = float(cfg["initial"]["chiller_speed_pct"])
+setpoint_c = float(cfg["initial"]["setpoint_c"])
+intake_fan_pct = float(cfg["initial"]["intake_fan_pct"])
+exhaust_fan_pct = float(cfg["initial"]["exhaust_fan_pct"])
+emergency_stop = bool(cfg["initial"]["emergency_stop"])
 
-# Outputs (controls)
-setpoint_c         = float(cfg["initial"]["setpoint_c"])        # AO:0
-intake_fan_pct     = float(cfg["initial"]["intake_fan_pct"])    # AO:1
-exhaust_fan_pct    = float(cfg["initial"]["exhaust_fan_pct"])   # AO:2
-emergency_stop     = bool(cfg["initial"]["emergency_stop"])     # BO:0
-
-# Dynamics gains
 cooling_gain_per_fan = float(cfg["dynamics"]["cooling_gain_per_fan"])
-chiller_gain         = float(cfg["dynamics"]["chiller_gain"])
-ambient_warm_drift   = float(cfg["dynamics"]["ambient_warm_drift"])
-noise_temp           = float(cfg["dynamics"]["noise_temp"])
-noise_chiller        = float(cfg["dynamics"]["noise_chiller"])
+chiller_gain = float(cfg["dynamics"]["chiller_gain"])
+ambient_warm_drift = float(cfg["dynamics"]["ambient_warm_drift"])
+noise_temp = float(cfg["dynamics"]["noise_temp"])
+noise_chiller = float(cfg["dynamics"]["noise_chiller"])
 
-# --- Outputs (Controls) ---
+# --- BACnet Objects ---
 ao_setpoint = AnalogOutputObject(
     objectIdentifier=("analog-output", 0),
     objectName="temperature_setpoint_c",
@@ -133,8 +116,6 @@ bo_e_stop = BinaryOutputObject(
     objectName="emergency_stop",
     presentValue=emergency_stop,
 )
-
-# --- Inputs (Sensors) ---
 ai_temp = AnalogInputObject(
     objectIdentifier=("analog-input", 0),
     objectName="current_temperature_c",
@@ -146,15 +127,104 @@ ai_chiller = AnalogInputObject(
     presentValue=chiller_speed_pct,
 )
 
+# -------------------- Live Visualizer --------------------
+HISTORY_SECONDS = 90.0
+
+def c_to_f(c):
+    return (c * 9.0 / 5.0) + 32.0
+
+class Visualizer:
+    def __init__(self, tick_seconds: float):
+        self.tick_seconds = tick_seconds
+        self.start_t = time.monotonic()
+        self.window = HISTORY_SECONDS
+        maxlen = int(self.window / max(0.05, tick_seconds)) + 5
+
+        self.t = deque(maxlen=maxlen)
+        self.temp_c = deque(maxlen=maxlen)
+        self.setp_c = deque(maxlen=maxlen)
+        self.chill = deque(maxlen=maxlen)
+        self.intake = deque(maxlen=maxlen)
+        self.exhaust = deque(maxlen=maxlen)
+
+        self.fig = plt.figure(figsize=(12, 6))
+        gs = self.fig.add_gridspec(3, 2, width_ratios=[2.2, 1.2], height_ratios=[1, 1, 1])
+        ax_temp = self.fig.add_subplot(gs[:, 0])
+        ax_chill = self.fig.add_subplot(gs[0, 1])
+        ax_intake = self.fig.add_subplot(gs[1, 1])
+        ax_exhaust = self.fig.add_subplot(gs[2, 1])
+
+        self.ax_temp, self.ax_chill, self.ax_intake, self.ax_exhaust = \
+            ax_temp, ax_chill, ax_intake, ax_exhaust
+
+        self.line_temp, = ax_temp.plot([], [], lw=2, color='C3', label='current temp')
+        self.line_setp, = ax_temp.plot([], [], lw=2, color='C0', label='set point')
+        ax_temp.set_title("Server Room Temperature")
+        ax_temp.set_xlabel("Time (s)")
+        ax_temp.set_ylabel("Temperature (°F)")
+        ax_temp.legend(loc='upper right')
+        ax_temp.set_ylim(50, 100)
+        ax_temp.grid(True, alpha=0.3)
+
+        for ax, title in [(ax_chill, "Chiller"), (ax_intake, "Intake"), (ax_exhaust, "Exhaust")]:
+            ax.set_title(title)
+            ax.set_ylim(0, 100)
+            ax.set_xlim(-self.window, 0)
+            ax.set_ylabel("Performance (%)")
+            ax.grid(True, alpha=0.25)
+            if title != "Exhaust":
+                ax.tick_params(labelbottom=False)
+
+        self.line_chill, = ax_chill.plot([], [], lw=2, color='C0')
+        self.line_intake, = ax_intake.plot([], [], lw=2, color='C2')
+        self.line_exhaust, = ax_exhaust.plot([], [], lw=2, color='C3')
+
+        self.anim = FuncAnimation(self.fig, self._update, interval=int(self.tick_seconds * 1000), blit=False)
+        plt.tight_layout()
+        plt.show(block=False)
+
+    def push(self, temp_c, setp_c, chill_pct, intake_pct, exhaust_pct):
+        now = time.monotonic() - self.start_t
+        self.t.append(now)
+        self.temp_c.append(temp_c)
+        self.setp_c.append(setp_c)
+        self.chill.append(chill_pct)
+        self.intake.append(intake_pct)
+        self.exhaust.append(exhaust_pct)
+
+    def _update(self, _frame):
+        if not self.t:
+            return
+        now = self.t[-1]
+        x = [ti - now for ti in self.t]
+        xmin, xmax = -self.window, 0
+        y_temp = [c_to_f(v) for v in self.temp_c]
+        y_setp = [c_to_f(v) for v in self.setp_c]
+        self.line_temp.set_data(x, y_temp)
+        self.line_setp.set_data(x, y_setp)
+        self.ax_temp.set_xlim(xmin, xmax)
+        for ax, line, series in [
+            (self.ax_chill, self.line_chill, self.chill),
+            (self.ax_intake, self.line_intake, self.intake),
+            (self.ax_exhaust, self.line_exhaust, self.exhaust),
+        ]:
+            line.set_data(x, list(series))
+            ax.set_xlim(xmin, xmax)
+
+_vis = None
+
+async def _mpl_gui_pump():
+    while True:
+        plt.pause(0.001)
+        await asyncio.sleep(0.05)
+
+# --------------------------------------------------------
 
 async def control_loop():
-    """Control dynamics to maintain a steady room temperature around AO:0."""
     global current_temp_c, chiller_speed_pct
-
     while True:
-        # --- Read outputs as the ground truth for controls ---
         setpoint = float(ao_setpoint.presentValue)
-        e_stop   = bool(bo_e_stop.presentValue)
+        e_stop = bool(bo_e_stop.presentValue)
 
         if AUTO_CONTROL:
             temp_err = current_temp_c - setpoint
@@ -162,37 +232,40 @@ async def control_loop():
                 ao_intake.presentValue = 0.0
                 ao_exhaust.presentValue = 0.0
             else:
-                # Map error to fan speeds (clamped 0..100)
                 base = max(0.0, min(100.0, 50.0 + 2.5 * temp_err))
-                ao_intake.presentValue  = base
+                ao_intake.presentValue = base
                 ao_exhaust.presentValue = base
-        # else: Caldera is driving AO:1/AO:2 directly; do not override.
 
         intake = float(ao_intake.presentValue or 0.0)
         exhaust = float(ao_exhaust.presentValue or 0.0)
 
-        # --- Process response ---
         if e_stop:
             effective_cooling = 0.0
         else:
             airflow_pct = max(0.0, min(100.0, (intake + exhaust) / 2.0))
             effective_cooling = (airflow_pct * cooling_gain_per_fan) + (chiller_speed_pct * chiller_gain / 100.0)
 
-        # Temperature moves toward setpoint when cooling is applied; otherwise warms slightly.
         if effective_cooling > 0.0 and current_temp_c > setpoint:
             current_temp_c -= effective_cooling
         else:
             current_temp_c += ambient_warm_drift
 
-        # Chiller speed tends to follow average fan demand (with noise), bounded 0..100.
         chiller_speed_pct = max(0.0, min(100.0, ((intake + exhaust) / 2.0) + random.uniform(-noise_chiller, noise_chiller)))
 
         current_temp_c += random.uniform(-noise_temp, noise_temp)
         current_temp_c = max(10.0, min(current_temp_c, 40.0))
 
-        # --- Publish inputs (sensors) ---
         ai_temp.presentValue = current_temp_c
         ai_chiller.presentValue = chiller_speed_pct
+
+        if _vis is not None:
+            _vis.push(
+                temp_c=current_temp_c,
+                setp_c=setpoint,
+                chill_pct=chiller_speed_pct,
+                intake_pct=intake,
+                exhaust_pct=exhaust,
+            )
 
         print(
             f"Tset={setpoint:.1f}°C | T={current_temp_c:.1f}°C | "
@@ -213,15 +286,17 @@ async def main():
     args = SimpleArgumentParser().parse_args()
     args.localAddress = DEVICE_IP
     app = Application.from_args(args)
-
     app.device_object.objectIdentifier = ("device", DEVICE_ID)
     app.device_object.objectName = DEVICE_NAME
 
-    # Register objects
     for obj in (ao_setpoint, ao_intake, ao_exhaust, bo_e_stop, ai_temp, ai_chiller):
         app.add_object(obj)
 
+    global _vis
+    _vis = Visualizer(TICK_SECONDS)
+    asyncio.create_task(_mpl_gui_pump())
     asyncio.create_task(control_loop())
+
     await asyncio.Future()
 
 
