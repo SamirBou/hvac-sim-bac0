@@ -23,3 +23,4 @@ dynamics:
 
 tick_seconds: 1.0
 auto_control: true
+enable_ui: true
