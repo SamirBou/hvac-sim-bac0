@@ -252,6 +252,11 @@ def main():
 
     app = HVACApplication(device, args.ini.address)
 
+    device.maxApduLengthAccepted = int(args.ini.maxapdulengthaccepted)
+    device.segmentationSupported = args.ini.segmentationsupported
+    device.vendorIdentifier = int(args.ini.vendoridentifier)
+    device.protocolServicesSupported = app.get_services_supported().value
+
     for obj in objects[1:]:
         app.add_object(obj)
 
