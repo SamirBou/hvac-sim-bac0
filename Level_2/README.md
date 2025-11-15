@@ -1,9 +1,6 @@
 # Level 2
 
-**HVACSim** is a lightweight simulated HVAC controller and Human–Machine Interface (HMI) designed for ICS/OT training, testing, and red-team/blue-team scenarios.
-It exposes a virtual **BACnet device** with writable controls and real-time physical simulation of room temperature, chiller output, and airflow.
-
----
+**HVACSim** is a simulated HVAC controller and Human–Machine Interface (HMI) designed for ICS/OT testing and red-team/blue-team scenarios using the Caldera client (e.g., simulation on one VM and Caldera running on another VM). It exposes a virtual BACnet device with writable controls and real-time physical simulation of room temperature, chiller output, and airflow.
 
 ## Features
 
@@ -40,8 +37,6 @@ Install:
 pip install -r requirements.txt
 ```
 
----
-
 ## Running the Simulator
 
 1. Ensure you have a BACpypes `.ini` file (example: `BACpypes.ini`).
@@ -53,8 +48,6 @@ python3 hvac_sim.py --ini ./BACpypes.ini
 
 3. The HMI opens automatically and the BACnet device begins responding to network requests.
 
----
-
 ## BACnet Object Map
 
 | Type | Object Name                 | Description                  |
@@ -65,8 +58,6 @@ python3 hvac_sim.py --ini ./BACpypes.ini
 | BO0  | `emergency_stop`            | Kill switch for chiller/fans |
 | AI0  | `current_temperature_c`     | Measured room temperature    |
 | AI1  | `chiller_speed_percent`     | PI-controlled chiller load   |
-
----
 
 ## Stopping the Simulator
 
