@@ -12,6 +12,17 @@ Objects:
 
 To run:
     python3 hvac_sim.py --ini ./BACpypes.ini --debug bacpypes.udp
+
+Authors:
+    Capstone Group:
+        University of Hawaii at Manoa Group 9 2025
+
+    Developers:
+        * Jake Dickinson
+        * Elijah Saloma
+
+    Advisor:
+        * Samir Boussarhane
 """
 
 import random
@@ -383,6 +394,8 @@ def start_plot(
     update_estop_button()
 
     def animate(_):
+        update_estop_button()
+
         if not data_buf["time"]:
             return line_temp, line_setp, line_chill, line_intake, line_exhaust
 
