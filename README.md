@@ -6,7 +6,7 @@ A simulated HVAC control system using BACnet/IP, designed as a companion to **MI
 
 ## Description
 
-**HVACSim** provides a realistic, software-only BACnet simulation of a server-room HVAC controller.  The system exposes writable BACnet objects (setpoint, fans, emergency stop) and simulates:
+**HVACSim** provides a realistic, software-only BACnet simulation of a server-room HVAC controller. The system exposes writable BACnet objects (setpoint, fans, emergency stop) and simulates:
 
 * Temperature dynamics
 * Chiller load and PI feedback loop
@@ -41,7 +41,7 @@ git clone https://github.com/elijah-saloma/MITRE_SimEnv.git
 pip install -r requirements.txt
 ```
 
-3. You can have a variety of different INI files specifying different port numbers or other BACnet communications paramters. Visit the [BACpypes documentation](https://bacpypes.readthedocs.io/en/stable/samples/sample001.html) to learn more about this ini file.
+3. You can have a variety of different INI files specifying different port numbers or other BACnet communications parameters. Visit the [BACpypes documentation](https://bacpypes.readthedocs.io/en/stable/samples/sample001.html) to learn more about this ini file.
 
 Example provided in repo root (`BACpypes.ini`):
 
@@ -101,80 +101,51 @@ The simulator continuously computes room temperature using:
 
 The temperature differential follows:
 
-```latex
-\[
-\frac{dT}{dt}
-    = \frac{(\text{ambient} + \text{internal\_load}) - \text{room\_temp}}
-           {\text{room\_time\_constant}}
-      - \left( \text{cooling\_from\_fans} + \text{cooling\_from\_chiller} \right)
-\]
+```
+dT_dt = ((ambient + internal_load) - room_temp) / room_time_constant \
+        - (cooling_from_fans + cooling_from_chiller)
 ```
 
 ### 2. Airflow Cooling
 
 The intake and exhaust sliders (or Caldera writes) produce an airflow percentage:
 
-```latex
-\[
-\text{airflow} = \frac{\text{intake} + \text{exhaust}}{2}
-\]
+```
+airflow = (intake + exhaust) / 2
 ```
 
 Cooling power is proportional to airflow:
 
-```latex
-\[
-\text{cooling}_{\text{airflow}}
-    = \left( \frac{\text{airflow}}{100} \right)
-      \cdot \text{AIRFLOW\_MAX\_COOL}
-\]
+```
+cooling_airflow = (airflow / 100) * AIRFLOW_MAX_COOL
 ```
 
 ### 3. Chiller Logic (PI Controller)
 
 The chiller is controlled by a **Proportional-Integral (PI)** loop:
 
-```latex
-\[
-\text{error} = \text{current\_temp} - \text{setpoint}
-\]
+```
+error = current_temp - setpoint
 ```
 
-```latex
-\[
-\text{integral} \leftarrow \text{integral} + \text{error} \cdot \text{tick}
-\]
+```
+integral = integral + error * tick
 ```
 
-```latex
-\[
-\text{chiller\_target}
-    = K_{P} \cdot \text{error}
-      + K_{I} \cdot \text{integral}
-\]
+```
+chiller_target = KP * error + KI * integral
 ```
 
 The chiller actuator then moves toward the target using:
 
-```latex
-\[
-\text{chiller\_speed}
-    \leftarrow
-    \text{chiller\_speed}
-    + \bigl( \text{chiller\_target} - \text{chiller\_speed} \bigr)
-      \cdot \text{CHILLER\_LAG}
-\]
+```
+chiller_speed = chiller_speed + (chiller_target - chiller_speed) * CHILLER_LAG
 ```
 
 Random noise is added to emulate real-world imperfectness:
 
-```latex
-\[
-\text{chiller\_speed}
-    \leftarrow
-    \text{chiller\_speed}
-    + \text{Uniform}(-\text{NOISE\_CHILLER}, \text{NOISE\_CHILLER})
-\]
+```
+chiller_speed = chiller_speed + Uniform(-NOISE_CHILLER, NOISE_CHILLER)
 ```
 
 ### 4. Emergency Stop Logic
@@ -215,11 +186,10 @@ If using Caldera with its BACnet plugin:
 1. Start the HVACSim process
 2. Start Caldera
 3. Create an operation
-
-    i. Create an agent
-    ii. Create an adversary profile including any BACnet features desired
-    iii. Create an operation that selects the adversary profile from (ii)
-    iv. Start operation
+   i. Create an agent
+   ii. Create an adversary profile including any BACnet features desired
+   iii. Create an operation that selects the adversary profile from (ii)
+   iv. Start operation
 4. Use abilities such as:
 
    * *ReadProperty* &rarr; Check temperature or chiller load
@@ -234,19 +204,19 @@ This allows for simulation of:
 * Disruptive fan/chiller control
 * Reconnaissance of BACnet points
 
-## Help & Troubleshooting
+## Help and Troubleshooting
 
 1. Ensure the `.ini` file has a valid BACnet device ID and IP address
 2. If BACnet clients cannot discover HVACSim, verify:
 
    * No firewall blocks UDP/47808
    * Correct network interface is used
-4. Use `--debug bacpypes.udp` for verbose network logs
+3. Use `--debug bacpypes.udp` for verbose network logs
 
 ## Authors
 
 Created by Group 9 2025, University of Hawaii at Manoa
-In collaboration with MITRE Caldera for OT tools - ot@mitre.org
+In collaboration with MITRE Caldera for OT tools — [ot@mitre.org](mailto:ot@mitre.org)
 
 ## License
 
