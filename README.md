@@ -214,6 +214,7 @@ This allows for simulation of:
 ## Authors
 
 Created by Group 9 2025, University of Hawaii at Manoa
+
 In collaboration with MITRE Caldera for OT tools — [ot@mitre.org](mailto:ot@mitre.org)
 
 ## License
