@@ -184,8 +184,11 @@ If using Caldera with its BACnet plugin:
 3. Create an operation
 
    i. Create an agent
+
    ii. Create an adversary profile including any BACnet features desired
+
    iii. Create an operation that selects the adversary profile from (ii)
+
    iv. Start operation
 
 4. Use abilities such as:
