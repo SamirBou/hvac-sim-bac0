@@ -41,7 +41,7 @@ git clone https://github.com/elijah-saloma/MITRE_SimEnv.git
 pip install -r requirements.txt
 ```
 
-3. You can have a variety of different INI files specifying different port numbers or other BACnet communications parameters. Visit the [BACpypes documentation](https://bacpypes.readthedocs.io/en/stable/samples/sample001.html) to learn more about this ini file.
+3. You can have a variety of different INI files specifying different port numbers or other BACnet communications parameters. Visit the [BACpypes documentation](https://bacpypes.readthedocs.io/en/stable/samples/sample001.html) to learn more about this INI file.
 
 Example provided in repo root (`BACpypes.ini`):
 
@@ -126,17 +126,13 @@ The chiller is controlled by a **Proportional-Integral (PI)** loop:
 
 ```
 error = current_temp - setpoint
-```
 
-```
 integral = integral + error * tick
-```
 
-```
 chiller_target = KP * error + KI * integral
 ```
 
-The chiller actuator then moves toward the target using:
+The chiller actuator then moves toward the target following:
 
 ```
 chiller_speed = chiller_speed + (chiller_target - chiller_speed) * CHILLER_LAG
@@ -186,10 +182,12 @@ If using Caldera with its BACnet plugin:
 1. Start the HVACSim process
 2. Start Caldera
 3. Create an operation
+
    i. Create an agent
    ii. Create an adversary profile including any BACnet features desired
    iii. Create an operation that selects the adversary profile from (ii)
    iv. Start operation
+
 4. Use abilities such as:
 
    * *ReadProperty* &rarr; Check temperature or chiller load
