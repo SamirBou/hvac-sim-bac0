@@ -71,6 +71,54 @@ Launching the script does three things:
 
 If the program fails to start, verify Python, dependencies, and the `.ini` file. Any exceptions should be printed in the console.
 
+### Step 2: Read/Write Properties
+
+To "attack" the device, one can access property values (i.e., read) and modify them as desired (i.e., write). Below is an example of the commands to set in the adversary profile in Caldera (or through CLI):
+
+#### ReadProperty (bacrp)
+
+The ReadProperty service is used by a BACnet client to request the value of one property from one BACnet object.
+
+##### Usage
+
+```
+./bacrp <device-instance> <object-type> <object-instance> <property> <index>
+```
+
+##### Example: Read current temperature from AI:0
+
+```
+./bacrp 101 analog-input 0 presentValue -1
+```
+
+#### WriteProperty (bacwp)
+
+The WriteProperty service is used by a BACnet client to write a value to a specific property of a BACnet object.
+
+##### Usage
+
+```
+./bacwp <device-instance> <object-type> <object-instance> <property> <priority> <index> <tag> <value>
+```
+
+##### Example 1: Set temperature setpoint on AO:0 to 18°C
+
+```
+./bacwp 101 analog-output 0 presentValue 8 -1 real 18.0
+```
+
+##### Example 2: Override/increase intake fan speed to 75%
+
+```
+./bacwp 101 analog-output 1 presentValue 8 -1 real 75.0
+```
+
+##### Example 3: Trigger Emergency Stop 🛑
+
+```
+./bacwp 101 binary-output 0 presentValue 8 -1 boolean true
+```
+
 ## BACnet Object Map
 
 The simulator exposes the following BACnet objects:
