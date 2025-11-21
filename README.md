@@ -55,6 +55,19 @@ vendorIdentifier: 15
 address: 127.0.0.1
 ```
 
+## BACnet Object Map
+
+The simulator exposes the following BACnet objects:
+
+| Type    | Object Name                 | Description                               |
+| ------- | --------------------------- | ----------------------------------------- |
+| **AO0** | `temperature_setpoint_c`    | Desired room temperature in °C (writable) |
+| **AO1** | `intake_fan_speed_percent`  | Intake fan command (0–100%)               |
+| **AO2** | `exhaust_fan_speed_percent` | Exhaust fan command (0–100%)              |
+| **BO0** | `emergency_stop`            | Safety kill switch for chiller/fans       |
+| **AI0** | `current_temperature_c`     | Measured room temperature (°C)            |
+| **AI1** | `chiller_speed_percent`     | PI-controlled chiller load (%)            |
+
 ## Usage
 
 ### Step 1: Start the Simulator
@@ -118,19 +131,6 @@ The WriteProperty service is used by a BACnet client to write a value to a speci
 ```
 ./bacwp 101 binary-output 0 presentValue 8 -1 boolean true
 ```
-
-## BACnet Object Map
-
-The simulator exposes the following BACnet objects:
-
-| Type    | Object Name                 | Description                               |
-| ------- | --------------------------- | ----------------------------------------- |
-| **AO0** | `temperature_setpoint_c`    | Desired room temperature in °C (writable) |
-| **AO1** | `intake_fan_speed_percent`  | Intake fan command (0–100%)               |
-| **AO2** | `exhaust_fan_speed_percent` | Exhaust fan command (0–100%)              |
-| **BO0** | `emergency_stop`            | Safety kill switch for chiller/fans       |
-| **AI0** | `current_temperature_c`     | Measured room temperature (°C)            |
-| **AI1** | `chiller_speed_percent`     | PI-controlled chiller load (%)            |
 
 ## Understanding the Process Simulation
 
