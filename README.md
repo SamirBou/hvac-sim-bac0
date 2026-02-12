@@ -2,6 +2,13 @@
 
 A simulated HVAC control system using BACnet/IP, designed as a companion to **MITRE Caldera for OT** for red/blue-team exercises involving cyber–physical systems.
 
+## Authors
+
+Created by University of Hawaii at Manoa Students for Capstone Project:
+Elijah Saloma and Jake Dickinson
+
+In collaboration with MITRE Caldera for OT tools ([ot@mitre.org](mailto:ot@mitre.org)).
+
 ![HMI](./Assets/Demo.gif)
 
 ## Description
@@ -27,12 +34,22 @@ This allows cybersecurity practitioners to emulate attacks against building HVAC
 
   * [Caldera installation instructions](https://github.com/mitre/caldera?tab=readme-ov-file#requirements)
 
+**Linux users:** Install system packages for matplotlib GUI support:
+
+```bash
+# Ubuntu/Debian
+sudo apt-get install python3-tk
+
+# Fedora/RHEL
+sudo dnf install python3-tkinter
+```
+
 ### Installation
 
 1. Clone the repository:
 
 ```bash
-git clone https://github.com/elijah-saloma/MITRE_SimEnv.git
+git clone https://github.com/mitre/hvac-sim.git
 ```
 
 2. Install Python dependencies:
@@ -259,12 +276,6 @@ This allows for simulation of:
    * Correct network interface is used
 3. Use `--debug bacpypes.udp` for verbose network logs
 
-## Authors
-
-Created by Group 9 2025, University of Hawaii at Manoa.
-
-In collaboration with MITRE Caldera for OT tools ([ot@mitre.org](mailto:ot@mitre.org)).
-
 ## License
 
 This project is licensed under the Apache-2.0 License.
@@ -275,3 +286,5 @@ See the LICENSE file for details.
 * [MITRE Caldera](https://github.com/mitre/caldera)
 * [Caldera for OT](https://github.com/mitre/caldera-ot)
 * [BACpypes](https://github.com/JoelBender/bacpypes)
+
+© 2026 THE MITRE CORPORATION. ALL RIGHTS RESERVED. APPROVED FOR PUBLIC RELEASE. DISTRIBUTION UNLIMITED PR_26-0182
