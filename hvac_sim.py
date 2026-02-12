@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Simulates an HVAC system as a BACnet/IP device for Caldera for OT.
+Simulates an HVAC system as a BACnet/IP device using BAC0 for Caldera for OT.
 
 Objects:
   - AO:0 temperature_setpoint_c      (writable)
@@ -11,39 +11,27 @@ Objects:
   - AI:1 chiller_speed_percent       (read-only)
 
 To run:
-    python3 hvac_sim.py --ini ./BACpypes.ini --debug bacpypes.udp
+    python3 hvac_sim_bac0.py
 
 Authors:
-    Capstone Group:
-        University of Hawaii at Manoa Group 9 2025
-
-    Developers:
-        * Jake Dickinson
-        * Elijah Saloma
-
-    Advisor:
-        * Samir Boussarhane
+    Original by Capstone Group: University of Hawaii at Manoa Group 9 2025
+    Developers: Jake Dickinson, Elijah Saloma
+    Advisor: Samir Boussarhane
 """
 
 import random
 import time
 import threading
 import signal
+import asyncio
 from collections import deque
 
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
 from matplotlib.widgets import Slider, Button
 
-from bacpypes.consolelogging import ConfigArgumentParser
-from bacpypes.core import run, stop
-from bacpypes.app import BIPSimpleApplication
-from bacpypes.object import (
-    DeviceObject,
-    AnalogInputObject,
-    AnalogOutputObject,
-    BinaryOutputObject,
-)
+import BAC0
+from BAC0.core.devices.local.factory import ObjectFactory
 
 current_temp_c = 22.0
 chiller_speed_pct = 30.0
@@ -71,69 +59,70 @@ CHILLER_INT_LIMIT = 200.0
 NOISE_TEMP = 0.05
 NOISE_CHILLER = 0.8
 
+ao_setpoint = None
+ao_intake = None
+ao_exhaust = None
+bo_e_stop = None
+ai_temp = None
+ai_chiller = None
+bacnet = None
 
-class HVACApplication(BIPSimpleApplication):
-    pass
 
+def start_bacnet(device_id, address):
+    global ao_setpoint, ao_intake, ao_exhaust, bo_e_stop, ai_temp, ai_chiller, bacnet
 
-def build_objects(device_name: str, device_id: int):
-    device = DeviceObject(
-        objectIdentifier=("device", device_id),
-        objectName=device_name,
-        vendorIdentifier=15,
-    )
+    async def _start():
+        nonlocal bacnet
+        bacnet = await BAC0.start(ip=address, deviceId=device_id)
+        return bacnet
 
-    ao_setpoint = AnalogOutputObject(
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    bacnet = loop.run_until_complete(_start())
+    factory = ObjectFactory(bacnet)
+
+    ao_setpoint = factory.analog_output(
         objectIdentifier=("analogOutput", 0),
         objectName="temperature_setpoint_c",
         presentValue=temperature_setpoint_c,
         description="Desired room temperature (°C)",
         relinquishDefault=23.0,
     )
-    ao_intake = AnalogOutputObject(
+    ao_intake = factory.analog_output(
         objectIdentifier=("analogOutput", 1),
         objectName="intake_fan_speed_percent",
         presentValue=intake_fan_speed,
         description="Intake fan speed (%)",
         relinquishDefault=30.0,
     )
-    ao_exhaust = AnalogOutputObject(
+    ao_exhaust = factory.analog_output(
         objectIdentifier=("analogOutput", 2),
         objectName="exhaust_fan_speed_percent",
         presentValue=exhaust_fan_speed,
         description="Exhaust fan speed (%)",
         relinquishDefault=30.0,
     )
-    bo_e_stop = BinaryOutputObject(
+    bo_e_stop = factory.binary_output(
         objectIdentifier=("binaryOutput", 0),
         objectName="emergency_stop",
         presentValue=emergency_stop,
         description="Emergency stop (True/False)",
         relinquishDefault=False,
     )
-
-    ai_temp = AnalogInputObject(
+    ai_temp = factory.analog_input(
         objectIdentifier=("analogInput", 0),
         objectName="current_temperature_c",
         presentValue=current_temp_c,
         description="Measured room temperature (°C)",
     )
-    ai_chiller = AnalogInputObject(
+    ai_chiller = factory.analog_input(
         objectIdentifier=("analogInput", 1),
         objectName="chiller_speed_percent",
         presentValue=chiller_speed_pct,
         description="Chiller load (%)",
     )
 
-    return device, [
-        device,
-        ao_setpoint,
-        ao_intake,
-        ao_exhaust,
-        bo_e_stop,
-        ai_temp,
-        ai_chiller,
-    ]
+    loop.run_forever()
 
 
 def hvac_loop(
@@ -248,222 +237,154 @@ def start_plot(
 
     gs = fig.add_gridspec(
         4,
-        4,
-        height_ratios=[3.5, 1.0, 1.0, 1.5],
-        width_ratios=[1.0, 1.0, 1.0, 1.0],
-        wspace=0.6,
-        hspace=0.7,
+        6,
+        left=0.05,
+        right=0.95,
+        bottom=0.05,
+        top=0.9,
+        wspace=0.3,
+        hspace=0.4,
     )
 
-    ax_temp = fig.add_subplot(gs[0, 0:3])
-    ax_chill = fig.add_subplot(gs[0, 3])
-    ax_intake = fig.add_subplot(gs[1, 3])
-    ax_exhaust = fig.add_subplot(gs[2, 3])
-    ax_controls = fig.add_subplot(gs[1:4, 0:3])
-    ax_controls.axis("off")
+    ax_temp = fig.add_subplot(gs[0, :3])
+    ax_chill = fig.add_subplot(gs[0, 3:])
+    ax_ctrl = fig.add_subplot(gs[1, :])
+    ax_fans = fig.add_subplot(gs[2, :])
+    ax_e_stop = fig.add_subplot(gs[3, 0])
+    ax_setpoint = fig.add_subplot(gs[3, 1])
+    ax_intake = fig.add_subplot(gs[3, 2])
+    ax_exhaust = fig.add_subplot(gs[3, 3])
+    ax_reset = fig.add_subplot(gs[3, 4])
+    ax_quit = fig.add_subplot(gs[3, 5])
 
-    (line_temp,) = ax_temp.plot(
-        [], [], lw=2, label="Current Temp (°F)", color=TEMP_COLOR
-    )
-    (line_setp,) = ax_temp.plot(
-        [], [], lw=2, linestyle="--", label="Setpoint (°F)", color=SETPOINT_COLOR
-    )
+    (temp_line,) = ax_temp.plot([], [], color=TEMP_COLOR, linewidth=2, label="Temp (°C)")
+    (setp_line,) = ax_temp.plot([], [], color=SETPOINT_COLOR, linewidth=2, label="Setpoint (°C)")
+    ax_temp.set_xlim(0, 600)
+    ax_temp.set_ylim(15, 35)
+    ax_temp.set_title("Temperature")
+    ax_temp.legend()
+    ax_temp.grid(True)
 
-    ax_temp.set_title("Server Room Temperature")
-    ax_temp.set_xlabel("Time (s)")
-    ax_temp.set_ylabel("Temperature (°F)")
-    ax_temp.legend(loc="upper right", frameon=True)
-
-    for ax in (ax_temp, ax_chill, ax_intake, ax_exhaust):
-        ax.spines["top"].set_visible(False)
-        ax.spines["right"].set_visible(False)
-
-    (line_chill,) = ax_chill.plot([], [], lw=2, color=CHILLER_COLOR)
-    ax_chill.set_ylabel("Chiller (%)")
+    (chill_line,) = ax_chill.plot([], [], color=CHILLER_COLOR, linewidth=2)
+    ax_chill.set_xlim(0, 600)
     ax_chill.set_ylim(0, 100)
-    ax_chill.set_title("Chiller", pad=6)
+    ax_chill.set_title("Chiller Load (%)")
+    ax_chill.grid(True)
 
-    (line_intake,) = ax_intake.plot([], [], lw=2, color=INTAKE_COLOR)
-    ax_intake.set_ylabel("Intake (%)")
-    ax_intake.set_ylim(0, 100)
-    ax_intake.set_xlabel("Time (s)")
+    (ctrl_line,) = ax_ctrl.plot([], [], color=TEMP_COLOR, linewidth=2)
+    ax_ctrl.set_xlim(0, 600)
+    ax_ctrl.set_ylim(15, 35)
+    ax_ctrl.set_title("Temperature Control")
+    ax_ctrl.grid(True)
 
-    (line_exhaust,) = ax_exhaust.plot([], [], lw=2, color=EXHAUST_COLOR)
-    ax_exhaust.set_ylabel("Exhaust (%)")
-    ax_exhaust.set_ylim(0, 100)
-    ax_exhaust.set_xlabel("Time (s)")
+    (intake_line,) = ax_fans.plot([], [], color=INTAKE_COLOR, linewidth=2, label="Intake (%)")
+    (exhaust_line,) = ax_fans.plot([], [], color=EXHAUST_COLOR, linewidth=2, label="Exhaust (%)")
+    ax_fans.set_xlim(0, 600)
+    ax_fans.set_ylim(0, 100)
+    ax_fans.set_title("Fan Speeds")
+    ax_fans.legend()
+    ax_fans.grid(True)
 
-    ctrl_pos = ax_controls.get_position()
-    left = ctrl_pos.x0
-    width = ctrl_pos.width
-    bottom = ctrl_pos.y0
-    height = ctrl_pos.height
-    slider_h = height / 6.0
+    setpoint_slider = Slider(ax_setpoint, "Setpoint (°C)", 15, 35, valinit=temperature_setpoint_c)
+    intake_slider = Slider(ax_intake, "Intake (%)", 0, 100, valinit=intake_fan_speed)
+    exhaust_slider = Slider(ax_exhaust, "Exhaust (%)", 0, 100, valinit=exhaust_fan_speed)
+    e_stop_button = Button(ax_e_stop, "E-Stop", color="red" if emergency_stop else "green")
+    reset_button = Button(ax_reset, "Reset", color="blue")
+    quit_button = Button(ax_quit, "Quit", color="gray")
 
-    fig.text(
-        left + 0.01 * width,
-        bottom + height - slider_h * 0.3,
-        "Controls",
-        fontsize=12,
-        fontweight="bold",
-    )
-
-    ax_s_setp = fig.add_axes(
-        [left + 0.02 * width, bottom + 4 * slider_h, width * 0.7, slider_h * 0.6]
-    )
-    ax_s_intake = fig.add_axes(
-        [left + 0.02 * width, bottom + 3 * slider_h, width * 0.7, slider_h * 0.6]
-    )
-    ax_s_exhaust = fig.add_axes(
-        [left + 0.02 * width, bottom + 2 * slider_h, width * 0.7, slider_h * 0.6]
-    )
-
-    btn_width = width * 0.2
-    btn_height = slider_h * 2.1
-    btn_left = left + 0.81 * width
-    btn_bottom = bottom + 2.3 * slider_h
-    ax_btn_estop = fig.add_axes([btn_left, btn_bottom, btn_width, btn_height])
-
-    initial_setp_f = c_to_f(float(ao_setpoint.presentValue))
-
-    s_setp = Slider(
-        ax=ax_s_setp,
-        label="Setpoint (°F)",
-        valmin=60.0,
-        valmax=85.0,
-        valinit=initial_setp_f,
-        facecolor=TEMP_COLOR,
-    )
-    s_intake = Slider(
-        ax=ax_s_intake,
-        label="Intake Fan (%)",
-        valmin=0.0,
-        valmax=100.0,
-        valinit=float(ao_intake.presentValue),
-        facecolor=INTAKE_COLOR,
-    )
-    s_exhaust = Slider(
-        ax=ax_s_exhaust,
-        label="Exhaust Fan (%)",
-        valmin=0.0,
-        valmax=100.0,
-        valinit=float(ao_exhaust.presentValue),
-        facecolor=EXHAUST_COLOR,
-    )
-
-    for s in (s_setp, s_intake, s_exhaust):
-        if s.valtext is not None:
-            s.valtext.set_fontweight("bold")
-
-    btn_estop = Button(ax_btn_estop, "E-STOP: OFF")
-    btn_estop.label.set_fontweight("bold")
-
-    def on_setp_change(val_f):
-        ao_setpoint.presentValue = (val_f - 32.0) * 5.0 / 9.0
-
-    def on_intake_change(val_pct):
-        ao_intake.presentValue = float(val_pct)
-
-    def on_exhaust_change(val_pct):
-        ao_exhaust.presentValue = float(val_pct)
-
-    s_setp.on_changed(on_setp_change)
-    s_intake.on_changed(on_intake_change)
-    s_exhaust.on_changed(on_exhaust_change)
-
-    def update_estop_button():
-        if bool(bo_e_stop.presentValue):
-            btn_estop.label.set_text("E-STOP: ON")
-            btn_estop.label.set_color("white")
-            btn_estop.color = "#b22222"
-            btn_estop.hovercolor = "#b22222"
-        else:
-            btn_estop.label.set_text("E-STOP: OFF")
-            btn_estop.label.set_color("black")
-            btn_estop.color = "#d3d3d3"
-            btn_estop.hovercolor = "#e0e0e0"
-
-        btn_estop.ax.set_facecolor(btn_estop.color)
-        fig.canvas.draw_idle()
-
-    def on_estop_clicked(_event):
-        bo_e_stop.presentValue = not bool(bo_e_stop.presentValue)
-        update_estop_button()
-
-    btn_estop.on_clicked(on_estop_clicked)
-    update_estop_button()
-
-    def animate(_):
-        update_estop_button()
-
+    def update_plot(frame):
         if not data_buf["time"]:
-            return line_temp, line_setp, line_chill, line_intake, line_exhaust
+            return temp_line, setp_line, chill_line, ctrl_line, intake_line, exhaust_line
 
-        t0 = data_buf["time"][0]
-        x = [t - t0 for t in data_buf["time"]]
+        times = list(data_buf["time"])
+        temps = list(data_buf["temp"])
+        setps = list(data_buf["setp"])
+        chills = list(data_buf["chill"])
+        intakes = list(data_buf["intake"])
+        exhausts = list(data_buf["exhaust"])
 
-        temp_f = [c_to_f(c) for c in data_buf["temp"]]
-        setp_f = [c_to_f(c) for c in data_buf["setp"]]
+        x_min = max(0, times[-1] - 600)
+        x_max = times[-1]
 
-        line_temp.set_data(x, temp_f)
-        line_setp.set_data(x, setp_f)
-        line_chill.set_data(x, data_buf["chill"])
-        line_intake.set_data(x, data_buf["intake"])
-        line_exhaust.set_data(x, data_buf["exhaust"])
+        ax_temp.set_xlim(x_min, x_max)
+        ax_chill.set_xlim(x_min, x_max)
+        ax_ctrl.set_xlim(x_min, x_max)
+        ax_fans.set_xlim(x_min, x_max)
 
-        xmax = x[-1]
-        xmin = max(0.0, xmax - 120.0)
-        for ax in (ax_temp, ax_chill, ax_intake, ax_exhaust):
-            ax.set_xlim(xmin, xmax + 1.0)
+        temp_line.set_data(times, temps)
+        setp_line.set_data(times, setps)
+        chill_line.set_data(times, chills)
+        ctrl_line.set_data(times, temps)
+        intake_line.set_data(times, intakes)
+        exhaust_line.set_data(times, exhausts)
 
-        tmin = min(temp_f)
-        tmax = max(temp_f)
-        pad = 2.0
-        ax_temp.set_ylim(tmin - pad, tmax + pad)
+        return temp_line, setp_line, chill_line, ctrl_line, intake_line, exhaust_line
 
-        return line_temp, line_setp, line_chill, line_intake, line_exhaust
+    def setpoint_changed(val):
+        ao_setpoint.presentValue = val
 
-    anim = FuncAnimation(fig, animate, interval=1000, cache_frame_data=False)
-    fig._anim = anim
+    def intake_changed(val):
+        ao_intake.presentValue = val
 
-    def _on_close(_evt):
+    def exhaust_changed(val):
+        ao_exhaust.presentValue = val
+
+    def e_stop_clicked(event):
+        nonlocal emergency_stop
+        emergency_stop = not emergency_stop
+        bo_e_stop.presentValue = emergency_stop
+        e_stop_button.color = "red" if emergency_stop else "green"
+        e_stop_button.label.set_text("E-Stop" if not emergency_stop else "Reset")
+        fig.canvas.draw()
+
+    def reset_clicked(event):
+        global current_temp_c, chiller_speed_pct, chiller_integral
+        current_temp_c = 22.0
+        chiller_speed_pct = 30.0
+        chiller_integral = 0.0
+        ao_setpoint.presentValue = temperature_setpoint_c
+        ao_intake.presentValue = intake_fan_speed
+        ao_exhaust.presentValue = exhaust_fan_speed
+        bo_e_stop.presentValue = False
+        setpoint_slider.set_val(temperature_setpoint_c)
+        intake_slider.set_val(intake_fan_speed)
+        exhaust_slider.set_val(exhaust_fan_speed)
+        e_stop_button.color = "green"
+        e_stop_button.label.set_text("E-Stop")
+        fig.canvas.draw()
+
+    def quit_clicked(event):
         running_evt.clear()
-        try:
-            stop()
-        except Exception:
-            pass
+        plt.close("all")
 
-    fig.canvas.mpl_connect("close_event", _on_close)
+    setpoint_slider.on_changed(setpoint_changed)
+    intake_slider.on_changed(intake_changed)
+    exhaust_slider.on_changed(exhaust_changed)
+    e_stop_button.on_clicked(e_stop_clicked)
+    reset_button.on_clicked(reset_clicked)
+    quit_button.on_clicked(quit_clicked)
 
+    ani = FuncAnimation(fig, update_plot, interval=1000, blit=True, cache_frame_data=False)
     plt.show()
-
-    running_evt.clear()
-    try:
-        stop()
-    except Exception:
-        pass
 
 
 def main():
-    parser = ConfigArgumentParser(description="BACnet HVAC Simulation Device")
-    args = parser.parse_args()
-
+    args = ConfigArgumentParser(description=__doc__).parse_args()
     device_name = args.ini.objectname or "HVACSim"
     device_id = int(args.ini.objectidentifier)
-    device, objects = build_objects(device_name, device_id)
+    address = args.ini.address
 
-    app = HVACApplication(device, args.ini.address)
+    core_thread = threading.Thread(target=start_bacnet, args=(device_id, address), name="bac0-core", daemon=True)
+    core_thread.start()
 
-    device.maxApduLengthAccepted = int(args.ini.maxapdulengthaccepted)
-    device.segmentationSupported = args.ini.segmentationsupported
-    device.vendorIdentifier = int(args.ini.vendoridentifier)
-    device.protocolServicesSupported = app.get_services_supported().value
+    # wait for objects to be created
+    while ao_setpoint is None:
+        time.sleep(0.1)
 
-    for obj in objects[1:]:
-        app.add_object(obj)
+    objects = [ao_setpoint, ao_intake, ao_exhaust, bo_e_stop, ai_temp, ai_chiller]
 
     print(
-        f"[HVACSim] Device '{device_name}' ready on {args.ini.address} (ID {device_id})"
+        f"[HVACSim] Device '{device_name}' ready on {address} (ID {device_id})"
     )
 
     data_buf = {
@@ -474,18 +395,15 @@ def main():
     running_evt = threading.Event()
     running_evt.set()
 
-    core_thread = threading.Thread(target=run, name="bacpypes-core", daemon=True)
-    core_thread.start()
-
     ctl_thread = threading.Thread(
         target=hvac_loop,
         args=(
+            objects[0],
             objects[1],
             objects[2],
             objects[3],
             objects[4],
             objects[5],
-            objects[6],
             data_buf,
             running_evt,
         ),
@@ -497,7 +415,8 @@ def main():
     def _sigint(_sig, _frm):
         running_evt.clear()
         try:
-            stop()
+            if bacnet:
+                bacnet.disconnect()
         except Exception:
             pass
         plt.close("all")
@@ -507,10 +426,10 @@ def main():
     start_plot(
         data_buf,
         running_evt,
+        objects[0],
         objects[1],
         objects[2],
         objects[3],
-        objects[4],
     )
 
     ctl_thread.join(timeout=1.0)
@@ -520,6 +439,6 @@ def main():
 
 if __name__ == "__main__":
     import warnings
-    warnings.filterwarnings("ignore", message="no signal handlers for child threads") # Harmless; related to vis.
+    warnings.filterwarnings("ignore", message="no signal handlers for child threads")  # Harmless; related to vis.
 
     main()
