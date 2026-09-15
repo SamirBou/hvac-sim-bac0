@@ -159,6 +159,18 @@ async def _run_bacnet_and_hold(device_id: int, address: str, running_evt: thread
                 "Check BAC0 configuration and object factory definitions."
             ) from err
 
+        # BAC0/bacpypes3 auto-adds a network-port object that cannot answer
+        # ReadPropertyMultiple with property "all", so EPICS-style clients loop
+        # on the error. Drop it so only the HVAC points are enumerated.
+        try:
+            local_app = bacnet.this_application.app
+            for obj in list(local_app.iter_objects()):
+                oid = getattr(obj, "objectIdentifier", None)
+                if oid is not None and "network-port" in str(oid):
+                    local_app.delete_object(obj)
+        except Exception as e:
+            print(f"[HVACSim] Warning: could not remove network-port object: {e}")
+
         print(f"[HVACSim] BACnet device ready on {address} (ID {device_id})")
 
         while running_evt.is_set():
