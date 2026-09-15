@@ -9,6 +9,8 @@ Elijah Saloma and Jake Dickinson
 
 In collaboration with Caldera for OT tools ([ot@mitre.org](mailto:ot@mitre.org)).
 
+The students' original BACpypes version is preserved on the `bacpypes` branch. This version moves the simulator to the bac0 library.
+
 ![HMI](./Assets/Demo.gif)
 
 ## Description
